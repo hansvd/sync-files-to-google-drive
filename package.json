@@ -1,0 +1,18 @@
+{
+  "name": "upload-to-google-drive",
+  "version": "1.0.0",
+  "description": "upload files to a google drive dir",
+  "main": "index.js",
+  "private": true,
+  "dependencies": {
+    "googleapis": "^39.0.0"
+  },
+  "devDependencies": {},
+  "engines": {
+    "node": ">=6.4.0"
+  },
+  "scripts": {
+    "start": "node ."
+  },
+  "license": "Apache-2.0"
+}
