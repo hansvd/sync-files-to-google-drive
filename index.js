@@ -20,18 +20,22 @@ const jwtClient = new google.auth.JWT(
 let errors = 0;
 
 
-
 function main() {
     console.log("start");
 
+    let localFiles = null;
     jwtClient.authorize()
         .then(function () {
             console.log("Authorized");
-            return listRemoteFiles();
+            return listLocalFiles();
 
         }, handleErr)
+        .then(function (localFilesAr) {
+            localFiles = localFilesAr;
+            return listRemoteFiles()
+        }, handleErr)
         .then(function (currentRemoteFiles) {
-            return uploadFiles(currentRemoteFiles);
+            return uploadFiles(localFiles, currentRemoteFiles);
         }, handleErr)
         .then(function () {
             console.log("Done, errorNb = " + errors);
@@ -41,22 +45,43 @@ function main() {
 }
 
 function handleErr(err) {
-    console.log("Authorize failed " + err);
+    console.log("Error: " + err);
     process.exit(1);
 }
 
+
+function listLocalFiles() {
+
+    return new Promise(function (resolve, reject) {
+        listLocalFilesBody(resolve, reject);
+    });
+}
+
+function listLocalFilesBody(resolve, reject) {
+
+    glob(config.localFileFilter, function (err, files) {
+
+        if (err) {
+            errors++;
+            console.log(err);
+            reject(err);
+        }
+        resolve(files);
+    });
+
+}
 
 function listRemoteFiles() {
 
     return new Promise(function (resolve, reject) {
 
-        listRemoteFileBody(reject, resolve);
+        listRemoteFileBody(resolve, reject);
     });
 
 
 }
 
-function listRemoteFileBody(reject, resolve) {
+function listRemoteFileBody(resolve, reject) {
     drive.files.list({
         auth: jwtClient,
         fields: 'files(name,trashed,size,createdTime)',
@@ -75,37 +100,35 @@ function listRemoteFileBody(reject, resolve) {
 }
 
 
-
-function uploadFiles(currentRemoteFiles) {
+function uploadFiles(localFiles, currentRemoteFiles) {
 
     return new Promise(function (resolve) {
-        uploadFilesBody(currentRemoteFiles, resolve);
+        uploadFilesBody(localFiles, currentRemoteFiles, resolve);
 
 
     });
 }
 
-function uploadFilesBody(currentRemoteFiles, resolve) {
+function uploadFilesBody(localFiles, currentRemoteFiles, resolve) {
 
-    glob(config.localFileFilter, function (er, files) {
-        let inUploadProgress = 1;
-        files.forEach((file) => {
-            const fileName = path.basename(file);
-            const fileSize = fs.statSync(file).size;
 
-            if (currentRemoteFiles.find(f => f.name === fileName &&  parseInt(f.size) === fileSize) !== undefined) {
-                console.log("Skip " + fileName);
-                return;
-            }
-            inUploadProgress++;
-            uploadFile(file).then(function () {
-                if (inUploadProgress === 0) resolve();
-            });
+    let inUploadProgress = 1;
+    localFiles.forEach((file) => {
+        const fileName = path.basename(file);
+        const fileSize = fs.statSync(file).size;
+
+        if (currentRemoteFiles.find(f => f.name === fileName && parseInt(f.size) === fileSize) !== undefined) {
+            console.log("Skip " + fileName);
+            return;
+        }
+        inUploadProgress++;
+        uploadFile(file).then(function () {
+            if (inUploadProgress === 0) resolve();
         });
-        inUploadProgress--;
-        if (inUploadProgress === 0)
-            resolve();
     });
+    inUploadProgress--;
+    if (inUploadProgress === 0)
+        resolve();
 
 }
 

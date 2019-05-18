@@ -1,4 +1,8 @@
 {
   "localFileFilter": " /Users/xyz/*.zip",
   "remoteGDirId": "xxxxxxxxxxx"
+
+
+   "maxFileAgeInDays": 15,
+   "removeRemoteAgedFiles": false
 }
