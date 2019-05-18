@@ -19,10 +19,7 @@ const jwtClient = new google.auth.JWT(
 
 let errors = 0;
 
-function handleErr(err) {
-    console.log("Authorize failed " + err);
-    process.exit(1);
-}
+
 
 function main() {
     console.log("start");
@@ -43,93 +40,111 @@ function main() {
 
 }
 
-function uploadFiles(skipFiles) {
-
-    function uploadFilesBody(resolve) {
-
-        glob(config.localFileFilter, function (er, files) {
-            let inUploadProgress = 1;
-            files.forEach((file) => {
-                const name = path.basename(file);
-                if (skipFiles.includes(name)) {
-                    console.log("Skip " + name);
-                    return;
-                }
-                inUploadProgress++;
-                uploadFile(jwtClient, file).then(function () {
-                    if (inUploadProgress === 0) resolve();
-                });
-            });
-            inUploadProgress--;
-            if (inUploadProgress === 0)
-                resolve();
-        });
-
-    }
-
-    return new Promise(function (resolve) {
-        uploadFilesBody(resolve);
-
-
-    });
+function handleErr(err) {
+    console.log("Authorize failed " + err);
+    process.exit(1);
 }
+
 
 function listRemoteFiles() {
 
     return new Promise(function (resolve, reject) {
 
-        drive.files.list({
-            auth: jwtClient,
-            includeRemoved: false,
-            spaces: 'drive',
-            fileId: config.remoteGDirId
-        }, function (listErr, resp) {
-            if (listErr) {
-                console.log(listErr);
-                errors++;
-                reject(listErr);
-            }
-            resolve(resp.data.files.map(f => f.name));
-        });
+        listRemoteFileBody(reject, resolve);
     });
 
 
 }
 
-async function uploadFile(auth, file) {
+function listRemoteFileBody(reject, resolve) {
+    drive.files.list({
+        auth: jwtClient,
+        fields: "files(name,trashed)",
+        spaces: 'drive',
+        fileId: config.remoteGDirId,
+    }, function (listErr, resp) {
+        if (listErr) {
+            console.log(listErr);
+            errors++;
+            reject(listErr);
+            return;
+        }
+        resolve(resp.data.files.filter(f => !f.trashed).map(f => f.name));
+    });
+}
+
+
+
+function uploadFiles(skipFiles) {
 
     return new Promise(function (resolve) {
-        const fileName = path.basename(file);
-        console.log("Start uploading: " + fileName);
-
-        const fileMetadata = {
-            'name': fileName,
-            'parents': [config.remoteGDirId]
-        };
+        uploadFilesBody(skipFiles, resolve);
 
 
-        const media = {
-            mimeType: mime.contentType(path.extname(file)),
-            body: fs.createReadStream(file)
-        };
-        drive.files.create({
-            auth: jwtClient,
-            resource: fileMetadata,
-            media: media,
-            fields: 'id'
-        }, function (err) {
-            if (err) {
-                console.log("Upload error: " + err);
-                errors++;
-                resolve();
-            } else {
-                console.log('File uploaded: : ', fileName);
-                resolve();
+    });
+}
+
+function uploadFilesBody(skipFiles, resolve) {
+
+    glob(config.localFileFilter, function (er, files) {
+        let inUploadProgress = 1;
+        files.forEach((file) => {
+            const name = path.basename(file);
+            if (skipFiles.includes(name)) {
+                console.log("Skip " + name);
+                return;
             }
-
+            inUploadProgress++;
+            uploadFile(file).then(function () {
+                if (inUploadProgress === 0) resolve();
+            });
         });
+        inUploadProgress--;
+        if (inUploadProgress === 0)
+            resolve();
+    });
+
+}
+
+
+function uploadFile(file) {
+
+    return new Promise(function (resolve) {
+        uploadFileBody(file, resolve);
     })
 
+}
+
+function uploadFileBody(file, resolve) {
+    const fileName = path.basename(file);
+    console.log("Start uploading: " + fileName);
+
+    const fileMetadata = {
+        'name': fileName,
+        'parents': [config.remoteGDirId]
+    };
+
+
+    const media = {
+        mimeType: mime.contentType(path.extname(file)),
+        body: fs.createReadStream(file)
+    };
+    drive.files.create({
+        auth: jwtClient,
+        resource: fileMetadata,
+        media: media,
+        fields: 'id'
+    }, function (err) {
+        if (err) {
+            console.log("Upload error: " + err);
+            errors++;
+            resolve();
+        } else {
+            console.log('File uploaded: : ', fileName);
+            resolve();
+        }
+
+    });
 }
 
 main();
