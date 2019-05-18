@@ -5,7 +5,9 @@
   "main": "index.js",
   "private": true,
   "dependencies": {
-    "googleapis": "^39.0.0"
+    "glob": "^7.1.4",
+    "googleapis": "^39.0.0",
+    "mime-types": "^2.1.24"
   },
   "devDependencies": {},
   "engines": {

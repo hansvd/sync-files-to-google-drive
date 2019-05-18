@@ -1,9 +1,14 @@
 const fs = require('fs');
+const path = require('path');
+const glob = require("glob");
+const mime = require('mime-types');
+
 const {google} = require('googleapis');
+const drive = google.drive('v3');
+
 const key = require('./config/credentials.json');
 const config = require('./config/config.json');
 
-const drive = google.drive('v3');
 const jwtClient = new google.auth.JWT(
     key.client_email,
     null,
@@ -12,80 +17,119 @@ const jwtClient = new google.auth.JWT(
     null,
 );
 
-var done = false;
+let errors = 0;
+
+function handleErr(err) {
+    console.log("Authorize failed " + err);
+    process.exit(1);
+}
 
 function main() {
     console.log("start");
-    var authorizePromise = jwtClient.authorize();
 
-    authorizePromise.then(function (auth) {
-        console.log("Authorized");
-        body(auth);
+    jwtClient.authorize()
+        .then(function () {
+            console.log("Authorized");
+            return listRemoteFiles();
 
-    }, function (err) {
-        console.log("Authorize failed " + err);
-    });
-}
-
-function body(auth) {
-    uploadFile(jwtClient, function () {
-        listFiles(auth);
-        console.log("Upload done");
-        done = true;
-    });
+        }, handleErr)
+        .then(function (currentRemoteFiles) {
+            return uploadFiles(currentRemoteFiles);
+        }, handleErr)
+        .then(function () {
+            console.log("Done, errorNb = " + errors);
+            process.exit(errors === 0 ? 0 : 1)
+        }, handleErr)
 
 }
 
-function listFiles(auth) {
-    // List Drive files.
-    drive.files.list({
-        auth: jwtClient,
-        includeRemoved: false,
-        spaces: 'drive',
-        fileId: config.parentGDirId
-    }, function(listErr, resp) {
-        if (listErr) {
-            console.log(listErr);
-            return;
-        }
-        resp.data.files.forEach((file) => {
-            console.log(`${file.name} (${file.mimeType})`);
+function uploadFiles(skipFiles) {
+
+    function uploadFilesBody(resolve) {
+
+        glob(config.localFileFilter, function (er, files) {
+            let inUploadProgress = 1;
+            files.forEach((file) => {
+                const name = path.basename(file);
+                if (skipFiles.includes(name)) {
+                    console.log("Skip " + name);
+                    return;
+                }
+                inUploadProgress++;
+                uploadFile(jwtClient, file).then(function () {
+                    if (inUploadProgress === 0) resolve();
+                });
+            });
+            inUploadProgress--;
+            if (inUploadProgress === 0)
+                resolve();
+        });
+
+    }
+
+    return new Promise(function (resolve) {
+        uploadFilesBody(resolve);
+
+
+    });
+}
+
+function listRemoteFiles() {
+
+    return new Promise(function (resolve, reject) {
+
+        drive.files.list({
+            auth: jwtClient,
+            includeRemoved: false,
+            spaces: 'drive',
+            fileId: config.remoteGDirId
+        }, function (listErr, resp) {
+            if (listErr) {
+                console.log(listErr);
+                errors++;
+                reject(listErr);
+            }
+            resolve(resp.data.files.map(f => f.name));
         });
     });
 
+
 }
 
-function uploadFile(auth, next) {
+async function uploadFile(auth, file) {
 
-    console.log("Start uploading");
+    return new Promise(function (resolve) {
+        const fileName = path.basename(file);
+        console.log("Start uploading: " + fileName);
 
-    const fileMetadata = {
-        'name': 'sensus-test1__20190504-230013.zip',
-        'parents': [config.parentGDirId]
-    };
+        const fileMetadata = {
+            'name': fileName,
+            'parents': [config.remoteGDirId]
+        };
 
 
-    const media = {
-        mimeType: 'application/zip',
-        body: fs.createReadStream('/Users/hans/Downloads/sensus-test1__20190504-230013.zip')
-    };
-    drive.files.create({
-        auth: jwtClient,
-        resource: fileMetadata,
-        media: media,
-        fields: 'id'
-    }, function (err, file) {
-        if (err) {
-            console.log("Upload error");
+        const media = {
+            mimeType: mime.contentType(path.extname(file)),
+            body: fs.createReadStream(file)
+        };
+        drive.files.create({
+            auth: jwtClient,
+            resource: fileMetadata,
+            media: media,
+            fields: 'id'
+        }, function (err) {
+            if (err) {
+                console.log("Upload error: " + err);
+                errors++;
+                resolve();
+            } else {
+                console.log('File uploaded: : ', fileName);
+                resolve();
+            }
 
-            // Handle error
-            console.error(err);
-        } else {
-            console.log('File uploaded, Id: ', file.data.id);
-            next();
-        }
+        });
+    })
 
-    });
 }
 
 main();
