@@ -102,6 +102,11 @@ function listRemoteFileBody(resolve, reject) {
             reject(listErr);
             return;
         }
+
+        if (config.remoteGDirExtFilter && config.remoteGDirExtFilter !== "") {
+            resolve(resp.data.files.filter(f => !f.trashed && f.name.endsWith(config.remoteGDirExtFilter)));
+            return;
+        }
         resolve(resp.data.files.filter(f => !f.trashed));
     });
 }
