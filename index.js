@@ -24,6 +24,8 @@ function main() {
     console.log("start");
 
     let localFiles = null;
+    let remoteFiles = null;
+
     jwtClient.authorize()
         .then(function () {
             console.log("Authorized");
@@ -32,10 +34,14 @@ function main() {
         }, handleErr)
         .then(function (localFilesAr) {
             localFiles = localFilesAr;
-            return listRemoteFiles()
+            return listRemoteFiles();
         }, handleErr)
         .then(function (currentRemoteFiles) {
+            remoteFiles = currentRemoteFiles;
             return uploadFiles(localFiles, currentRemoteFiles);
+        }, handleErr)
+        .then(function () {
+            return cleanUpRemoteFiles(remoteFiles);
         }, handleErr)
         .then(function () {
             console.log("Done, errorNb = " + errors);
@@ -68,7 +74,7 @@ function listLocalFilesBody(resolve, reject) {
         }
         if (config.maxFileAgeInDays > 0) {
             let d = new Date();
-            d.setDate(d.getDate()-config.maxFileAgeInDays);
+            d.setDate(d.getDate() - config.maxFileAgeInDays);
 
             resolve(files.filter(f => fs.statSync(f).mtime >= d));
             return;
@@ -89,11 +95,12 @@ function listRemoteFiles() {
 }
 
 function listRemoteFileBody(resolve, reject) {
+
     drive.files.list({
         auth: jwtClient,
-        fields: 'files(name,trashed,size,createdTime)',
+        fields: 'files(id,name,trashed,size,createdTime)',
         spaces: 'drive',
-        q: "'" + config.remoteGDirId + "' in parents"
+        q: `'${config.remoteGDirId}' in parents`
 
     }, function (listErr, resp) {
         if (listErr) {
@@ -123,7 +130,6 @@ function uploadFiles(localFiles, currentRemoteFiles) {
 
 function uploadFilesBody(localFiles, currentRemoteFiles, resolve) {
 
-
     let inUploadProgress = 1;
     localFiles.forEach((file) => {
         const fileName = path.basename(file);
@@ -135,11 +141,11 @@ function uploadFilesBody(localFiles, currentRemoteFiles, resolve) {
         }
         inUploadProgress++;
         uploadFile(file).then(function () {
-            if (inUploadProgress === 0) resolve();
+            if (--inUploadProgress <= 0) resolve();
         });
     });
     inUploadProgress--;
-    if (inUploadProgress === 0)
+    if (--inUploadProgress <= 0)
         resolve();
 
 }
@@ -179,6 +185,65 @@ function uploadFileBody(file, resolve) {
             resolve();
         } else {
             console.log('File uploaded: : ', fileName);
+            resolve();
+        }
+
+    });
+}
+
+
+function cleanUpRemoteFiles(currentRemoteFiles) {
+
+    return new Promise(function (resolve) {
+        cleanUpRemoteFilesFilesBody(currentRemoteFiles, resolve);
+    });
+}
+
+function cleanUpRemoteFilesFilesBody(currentRemoteFiles, resolve) {
+
+    if (!config.removeRemoteAgedFiles || config.maxFileAgeInDays <= 0) resolve();
+
+    let d = new Date();
+    d.setDate(d.getDate() - config.maxFileAgeInDays);
+
+
+    let inProgress = 1;
+    currentRemoteFiles.forEach((file) => {
+        let fd = new Date(file.createdTime);
+        if (fd >= d) return;
+
+        inProgress++;
+        deleteRemoteFile(file).then(() => {
+            if (--inProgress <= 0) resolve();
+        });
+    });
+    if (--inProgress <= 0) resolve();
+
+}
+
+
+function deleteRemoteFile(file) {
+
+    return new Promise(function (resolve) {
+        deleteRemoteFileBody(file, resolve);
+    })
+
+}
+
+function deleteRemoteFileBody(file, resolve) {
+    console.log("Delete remote " + file.name);
+
+
+    drive.files.delete({
+        auth: jwtClient,
+        fileId: file.id
+    }, function (err) {
+        if (err) {
+            console.log("Delete error: " + err);
+            errors++;
+            resolve();
+        } else {
+            console.log('File deleted: : ', file.name);
             resolve();
         }
 
