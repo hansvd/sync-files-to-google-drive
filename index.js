@@ -59,9 +59,10 @@ function listRemoteFiles() {
 function listRemoteFileBody(reject, resolve) {
     drive.files.list({
         auth: jwtClient,
-        fields: "files(name,trashed)",
+        fields: 'files(name,trashed,size,createdTime)',
         spaces: 'drive',
-        fileId: config.remoteGDirId,
+        q: "'" + config.remoteGDirId + "' in parents"
+
     }, function (listErr, resp) {
         if (listErr) {
             console.log(listErr);
@@ -69,29 +70,31 @@ function listRemoteFileBody(reject, resolve) {
             reject(listErr);
             return;
         }
-        resolve(resp.data.files.filter(f => !f.trashed).map(f => f.name));
+        resolve(resp.data.files.filter(f => !f.trashed));
     });
 }
 
 
 
-function uploadFiles(skipFiles) {
+function uploadFiles(currentRemoteFiles) {
 
     return new Promise(function (resolve) {
-        uploadFilesBody(skipFiles, resolve);
+        uploadFilesBody(currentRemoteFiles, resolve);
 
 
     });
 }
 
-function uploadFilesBody(skipFiles, resolve) {
+function uploadFilesBody(currentRemoteFiles, resolve) {
 
     glob(config.localFileFilter, function (er, files) {
         let inUploadProgress = 1;
         files.forEach((file) => {
-            const name = path.basename(file);
-            if (skipFiles.includes(name)) {
-                console.log("Skip " + name);
+            const fileName = path.basename(file);
+            const fileSize = fs.statSync(file).size;
+
+            if (currentRemoteFiles.find(f => f.name === fileName &&  parseInt(f.size) === fileSize) !== undefined) {
+                console.log("Skip " + fileName);
                 return;
             }
             inUploadProgress++;
