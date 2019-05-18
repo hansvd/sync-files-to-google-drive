@@ -66,6 +66,13 @@ function listLocalFilesBody(resolve, reject) {
             console.log(err);
             reject(err);
         }
+        if (config.maxFileAgeInDays > 0) {
+            let d = new Date();
+            d.setDate(d.getDate()-config.maxFileAgeInDays);
+
+            resolve(files.filter(f => fs.statSync(f).mtime >= d));
+            return;
+        }
         resolve(files);
     });
 
