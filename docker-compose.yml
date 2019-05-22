@@ -1,0 +1,13 @@
+version: "3.7"
+
+services:
+
+  sync-to-google-drive:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: sync-files-to-google-drive
+    image: sync-files-to-google-drive
+    working_dir: /usr/src
+    volumes:
+      - ./config:/usr/src/config
