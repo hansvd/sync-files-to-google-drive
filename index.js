@@ -100,6 +100,7 @@ function listRemoteFileBody(resolve, reject) {
         auth: jwtClient,
         fields: 'files(id,name,trashed,size,createdTime)',
         spaces: 'drive',
+        pageSize: 1000,
         q: `'${config.remoteGDirId}' in parents`
 
     }, function (listErr, resp) {
@@ -109,7 +110,7 @@ function listRemoteFileBody(resolve, reject) {
             reject(listErr);
             return;
         }
-
+        console.log(`${resp.data.files.length} remote files found`);
         if (config.remoteGDirExtFilter && config.remoteGDirExtFilter !== "") {
             resolve(resp.data.files.filter(f => !f.trashed && f.name.endsWith(config.remoteGDirExtFilter)));
             return;
@@ -128,28 +129,42 @@ function uploadFiles(localFiles, currentRemoteFiles) {
     });
 }
 
-function uploadFilesBody(localFiles, currentRemoteFiles, resolve) {
+async function uploadFilesBody(localFiles, currentRemoteFiles, resolve) {
+
+    // prevent running out of storage
+    drive.files.emptyTrash({
+        auth: jwtClient,
+    }, function (err) {
+        if (err) console.log(err);
+    });
 
     let inUploadProgress = 1;
-    localFiles.forEach((file) => {
+    for (const file of localFiles ) {
         const fileName = path.basename(file);
         const fileSize = fs.statSync(file).size;
 
         if (currentRemoteFiles.find(f => f.name === fileName && parseInt(f.size) === fileSize) !== undefined) {
             console.log("Skip " + fileName);
-            return;
+            continue;
         }
         inUploadProgress++;
         uploadFile(file).then(function () {
             if (--inUploadProgress <= 0) resolve();
         });
-    });
+
+        while (inUploadProgress > 5)
+            await sleep(2000);
+    }
     inUploadProgress--;
     if (--inUploadProgress <= 0)
         resolve();
 
 }
-
+function sleep(ms){
+    return new Promise(resolve=>{
+        setTimeout(resolve,ms)
+    })
+}
 
 function uploadFile(file) {
 
@@ -199,7 +214,7 @@ function cleanUpRemoteFiles(currentRemoteFiles) {
     });
 }
 
-function cleanUpRemoteFilesFilesBody(currentRemoteFiles, resolve) {
+async function cleanUpRemoteFilesFilesBody(currentRemoteFiles, resolve) {
 
     if (!config.removeRemoteAgedFiles || config.maxFileAgeInDays <= 0) resolve();
 
@@ -208,15 +223,19 @@ function cleanUpRemoteFilesFilesBody(currentRemoteFiles, resolve) {
 
 
     let inProgress = 1;
-    currentRemoteFiles.forEach((file) => {
+    for (const file of currentRemoteFiles) {
         let fd = new Date(file.createdTime);
-        if (fd >= d) return;
+        if (fd >= d) continue;
 
         inProgress++;
         deleteRemoteFile(file).then(() => {
             if (--inProgress <= 0) resolve();
         });
-    });
+
+
+        while (inProgress > 5)
+            await sleep(2000);
+    }
     if (--inProgress <= 0) resolve();
 
 }
